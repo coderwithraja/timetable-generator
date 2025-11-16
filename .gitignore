@@ -1,0 +1,90 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+jspm_packages/
+
+# Build output
+dist/
+build/
+vite-dist/
+
+# Vite cache
+.vite/
+.vite-cache/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Editor directories and files
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.DS_Store
+*.bak
+*.tmp
+
+# OS-specific files
+Thumbs.db
+Desktop.ini
+
+# Local env files
+.env
+.env.*
+!.env.example
+
+# Optional caches
+.cache/
+.temp/
+.eslintcache
+.stylelintcache
+.parcel-cache/
+.next/
+.nuxt/
+out/
+
+# TypeScript build
+tsconfig.tsbuildinfo
+
+# Storybook
+.storybook-out/
+storybook-static/
+
+# Testing
+coverage/
+*.lcov
+
+# Misc
+*.local
+*.log
+*.lock
+*.pid
+*.seed
+*.tgz
+*.zip
+
+# Frontend specific (Vite/Tailwind)
+tailwind.config.js
+postcss.config.js
+
+# React state, config artifacts
+*.manifest.json
+stats.html
+
+# Linux temp
+*~
+
+# JetBrains Fleet
+.fleet/
+
+# VSCode settings except important ones
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
