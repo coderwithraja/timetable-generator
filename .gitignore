@@ -81,6 +81,7 @@ stats.html
 # Linux temp
 *~
 
+package.lock.json
 # JetBrains Fleet
 .fleet/
 
