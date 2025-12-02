@@ -1,20 +1,10 @@
 import React, { useState } from "react";
-import {
-  Calendar,
-  Users,
-  BookOpen,
-  Download,
-  Edit2,
-  Plus,
-  Trash2,
-  Check,
-  X,
-} from "lucide-react";
+import { Calendar, Download, Edit2, Plus, Trash2, Check } from "lucide-react";
 
 const TimetableGenerator = () => {
   const [step, setStep] = useState(1);
   const [classes, setClasses] = useState(6);
-  const [staticHours, setStaticHours] = useState([]);
+  const [staticHours, setStaticHours] = useState([]); // { yearGroup: number, subject: string, slots: [{day, period}] }
   const [hod, setHod] = useState({ name: "", courses: [] });
   const [labs, setLabs] = useState([]);
   const [staff, setStaff] = useState([]);
@@ -43,6 +33,56 @@ const TimetableGenerator = () => {
     "II-MCA",
   ];
 
+  // Helper: map a yearGroup (0..4) to class index(es)
+  // YearGroup indexing: 0 => Year1, 1 => Year2, 2 => Year3, 3 => Year4 (I-MCA), 4 => Year5 (II-MCA)
+  const getClassIndicesForYearGroup = (yearGroup) => {
+    // 0..2 => BCA years (two sections)
+    if (yearGroup >= 0 && yearGroup <= 2) {
+      const a = yearGroup * 2;
+      const b = a + 1;
+      const indices = [a];
+      if (b < classes) indices.push(b);
+      return indices;
+    }
+    // yearGroup 3 => I-MCA (index 6)
+    if (yearGroup === 3) {
+      if (6 < classes) return [6];
+      return [];
+    }
+    // yearGroup 4 => II-MCA (index 7)
+    if (yearGroup === 4) {
+      if (7 < classes) return [7];
+      return [];
+    }
+    return [];
+  };
+
+  // Check if a given class/day/period is a static booked slot
+  const isStaticSlot = (classIdx, day, period) => {
+    for (const sh of staticHours) {
+      // If section exists (new logic)
+      if (sh.section) {
+        const classOfThisStatic = getClassIndex(sh.yearGroup + 1, sh.section);
+        if (
+          classIdx === classOfThisStatic &&
+          sh.slots.some((s) => s.day === day && s.period === period)
+        ) {
+          return true;
+        }
+      } else {
+        // Old fallback
+        const indices = getClassIndicesForYearGroup(sh.yearGroup);
+        if (
+          indices.includes(classIdx) &&
+          sh.slots.some((s) => s.day === day && s.period === period)
+        ) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+
   // Initialize empty timetable
   const initTimetable = () => {
     const tt = [];
@@ -59,70 +99,97 @@ const TimetableGenerator = () => {
   const generateTimetable = () => {
     const tt = initTimetable();
 
-    // Place static hours
+    // --- Place static hours first (locked) ---
     staticHours.forEach((sh) => {
-      sh.slots.forEach((slot) => {
-        const classIdx = Math.floor(sh.yearGroup * 2);
-        if (classIdx < classes) {
+      const classIdx = getClassIndex(sh.yearGroup + 1, sh.section);
+
+      if (classIdx < classes) {
+        sh.slots.forEach((slot) => {
           tt[classIdx][slot.day][slot.period] = sh.subject;
-          if (classIdx + 1 < classes) {
-            tt[classIdx + 1][slot.day][slot.period] = sh.subject;
-          }
-        }
-      });
+        });
+      }
     });
 
-    // Place labs
+    // --- Place labs ---
     labs.forEach((lab) => {
       let placed = 0;
       let attempts = 0;
 
-      while (placed < lab.hours && attempts < 100) {
+      while (placed < lab.hours && attempts < 400) {
         const day = Math.floor(Math.random() * 6);
         const period = Math.floor(Math.random() * 5);
 
-        let canPlace = true;
+        // find the correct class index for lab (A or single as per year)
+        const possibleIndices = getClassIndicesForYearGroup(lab.yearGroup);
+        // choose first valid index where slot is free and not static
+        let placedHere = false;
+        for (const classIdx of possibleIndices) {
+          if (
+            classIdx < classes &&
+            !tt[classIdx][day][period] // free (not static or any other)
+          ) {
+            // Additional check: ensure lab not duplicated across other classes same slot
+            let labConflict = false;
+            for (let cls = 0; cls < classes; cls++) {
+              if (
+                tt[cls][day][period] &&
+                String(tt[cls][day][period]).includes(`Lab(${lab.name})`)
+              ) {
+                labConflict = true;
+                break;
+              }
+            }
+            if (labConflict) continue;
 
-        // Check if slot is free and no adjacent conflicts
-        for (let cls = 0; cls < classes; cls++) {
-          if (tt[cls][day][period] && tt[cls][day][period].includes(lab.name)) {
-            canPlace = false;
+            // place for section A and B appropriately
+            // If there are two indices (BCA), for labs we want to set A with staffA and B with staffB if both indices exist
+            if (possibleIndices.length === 2) {
+              const aIdx = possibleIndices[0];
+              const bIdx = possibleIndices[1];
+              if (aIdx < classes && !tt[aIdx][day][period]) {
+                tt[aIdx][day][period] = `Lab(${lab.name})-${lab.staffA}`;
+              }
+              if (bIdx < classes && !tt[bIdx][day][period]) {
+                tt[bIdx][day][period] = `Lab(${lab.name})-${lab.staffB}`;
+              }
+            } else {
+              // single-section (MCA): place lab with staffA
+              tt[classIdx][day][period] = `Lab(${lab.name})-${lab.staffA}`;
+            }
+
+            placed++;
+            placedHere = true;
             break;
           }
         }
 
-        if (canPlace) {
-          const classIdx = lab.yearGroup * 2;
-          if (classIdx < classes && !tt[classIdx][day][period]) {
-            tt[classIdx][day][period] = `Lab(${lab.name})-${lab.staffA}`;
-            if (classIdx + 1 < classes) {
-              tt[classIdx + 1][day][period] = `Lab(${lab.name})-${lab.staffB}`;
-            }
-            placed++;
-          }
-        }
-        attempts++;
+        if (!placedHere) attempts++;
+        else attempts = 0; // reset a bit if placed
+        if (attempts > 400) break;
       }
     });
 
-    // Place HOD courses
+    // --- Place HOD courses ---
     hod.courses.forEach((course) => {
       let placed = 0;
       let attempts = 0;
+      const courseDuration = Number(course.duration) || 0;
 
-      while (placed < course.duration && attempts < 100) {
+      while (placed < courseDuration && attempts < 400) {
         const day = Math.floor(Math.random() * 6);
-        const period = Math.floor(Math.random() * 3) + 1; // periods 1-3
+        // periods 1-3 -> indices 0..2
+        const period = Math.floor(Math.random() * 3);
 
         const classIdx = getClassIndex(course.year, course.section);
 
         if (classIdx < classes && !tt[classIdx][day][period]) {
           let canPlace = true;
 
-          // Check for HOD conflicts
+          // Check HOD conflict (same hod.name teaching elsewhere same slot)
           for (let cls = 0; cls < classes; cls++) {
             if (
               tt[cls][day][period] &&
+              typeof tt[cls][day][period] === "string" &&
               tt[cls][day][period].includes(hod.name)
             ) {
               canPlace = false;
@@ -135,17 +202,19 @@ const TimetableGenerator = () => {
             placed++;
           }
         }
+
         attempts++;
       }
     });
 
-    // Place staff courses
+    // --- Place staff courses ---
     staff.forEach((st) => {
       st.courses.forEach((course) => {
         let placed = 0;
         let attempts = 0;
+        const courseDuration = Number(course.duration) || 0;
 
-        while (placed < course.duration && attempts < 100) {
+        while (placed < courseDuration && attempts < 400) {
           const day = Math.floor(Math.random() * 6);
           const period = Math.floor(Math.random() * 5);
 
@@ -154,10 +223,11 @@ const TimetableGenerator = () => {
           if (classIdx < classes && !tt[classIdx][day][period]) {
             let canPlace = true;
 
-            // Check for staff conflicts
+            // Check staff conflicts (teacher not teaching elsewhere same slot)
             for (let cls = 0; cls < classes; cls++) {
               if (
                 tt[cls][day][period] &&
+                typeof tt[cls][day][period] === "string" &&
                 tt[cls][day][period].includes(st.name)
               ) {
                 canPlace = false;
@@ -179,9 +249,13 @@ const TimetableGenerator = () => {
     setStep(5);
   };
 
+  // Map course year+section to class index (A or B)
   const getClassIndex = (year, section) => {
+    const yearNum = Number(year);
     const yearMap = { 1: 0, 2: 2, 3: 4, 4: 6, 5: 7 };
-    const base = yearMap[year] || 0;
+    const base = yearMap[yearNum] ?? 0;
+    // If section B requested but for MCA years, return base (single-section)
+    if (yearNum >= 4) return base;
     return section === "A" ? base : base + 1;
   };
 
@@ -218,8 +292,10 @@ const TimetableGenerator = () => {
     if (!timetable) return null;
 
     const staffTT = {};
+    const combinedStaff = [...staff];
+    if (hod?.name) combinedStaff.push({ name: hod.name });
 
-    [...staff, { name: hod.name }].forEach((st) => {
+    combinedStaff.forEach((st) => {
       staffTT[st.name] = [];
       for (let day = 0; day < 6; day++) {
         staffTT[st.name][day] = [];
@@ -228,6 +304,7 @@ const TimetableGenerator = () => {
           for (let cls = 0; cls < classes; cls++) {
             if (
               timetable[cls][day][period] &&
+              typeof timetable[cls][day][period] === "string" &&
               timetable[cls][day][period].includes(st.name)
             ) {
               staffTT[st.name][day][
@@ -237,9 +314,7 @@ const TimetableGenerator = () => {
               break;
             }
           }
-          if (!found) {
-            staffTT[st.name][day][period] = "Free";
-          }
+          if (!found) staffTT[st.name][day][period] = "Free";
         }
       }
     });
@@ -248,7 +323,11 @@ const TimetableGenerator = () => {
   };
 
   const updateCell = (classIdx, day, period, value) => {
-    const newTT = [...timetable];
+    // guard: don't allow updates to static slots
+    if (isStaticSlot(classIdx, day, period)) return;
+    const newTT = timetable.map(
+      (row) => row.map((r) => r.slice()) // deep-ish copy
+    );
     newTT[classIdx][day][period] = value || null;
     setTimetable(newTT);
     setSelectedCell(null);
@@ -319,16 +398,53 @@ const TimetableGenerator = () => {
                 </label>
                 <input
                   type="number"
+                  min={1}
+                  max={8}
                   value={classes}
-                  onChange={(e) =>
-                    setClasses(
-                      Math.min(8, Math.max(1, parseInt(e.target.value) || 1))
-                    )
-                  }
+                  onChange={(e) => {
+                    const v = e.target.value;
+
+                    // Allow empty while typing
+                    if (v === "") {
+                      setClasses("");
+                      return;
+                    }
+
+                    const num = Number(v);
+
+                    // Show alerts
+                    if (num < 1) {
+                      alert("⚠ Minimum allowed class count is 1");
+                      setClasses(1);
+                      return;
+                    }
+
+                    if (num > 8) {
+                      alert("⚠ Maximum allowed classes is 8");
+                      setClasses(8);
+                      return;
+                    }
+
+                    setClasses(num);
+                  }}
+                  onBlur={() => {
+                    let v = Number(classes);
+
+                    if (isNaN(v) || v < 1) {
+                      alert("⚠ Minimum allowed class count is 1");
+                      v = 1;
+                    }
+
+                    if (v > 8) {
+                      alert("⚠ Maximum allowed classes is 8");
+                      v = 8;
+                    }
+
+                    setClasses(v);
+                  }}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-                  min="1"
-                  max="8"
                 />
+
                 <p className="text-sm text-gray-500 mt-1">
                   Selected classes: {classNames.slice(0, classes).join(", ")}
                 </p>
@@ -353,6 +469,8 @@ const TimetableGenerator = () => {
               <StaticHoursForm
                 staticHours={staticHours}
                 setStaticHours={setStaticHours}
+                getClassIndicesForYearGroup={getClassIndicesForYearGroup}
+                classNames={classNames}
               />
               <div className="flex gap-3">
                 <button
@@ -490,64 +608,79 @@ const TimetableGenerator = () => {
                             <td className="border border-gray-300 px-4 py-2 font-medium">
                               {day}
                             </td>
-                            {periods.map((_, periodIdx) => (
-                              <td
-                                key={periodIdx}
-                                className="border border-gray-300 px-2 py-2 text-sm cursor-pointer hover:bg-indigo-50"
-                                onClick={() =>
-                                  editMode &&
-                                  setSelectedCell({
-                                    classIdx,
-                                    day: dayIdx,
-                                    period: periodIdx,
-                                  })
-                                }
-                              >
-                                {selectedCell?.classIdx === classIdx &&
-                                selectedCell?.day === dayIdx &&
-                                selectedCell?.period === periodIdx ? (
-                                  <input
-                                    type="text"
-                                    defaultValue={
-                                      timetable[classIdx][dayIdx][periodIdx] ||
-                                      ""
-                                    }
-                                    onBlur={(e) =>
-                                      updateCell(
-                                        classIdx,
-                                        dayIdx,
-                                        periodIdx,
-                                        e.target.value
-                                      )
-                                    }
-                                    onKeyDown={(e) => {
-                                      if (e.key === "Enter")
+                            {periods.map((_, periodIdx) => {
+                              const locked = isStaticSlot(
+                                classIdx,
+                                dayIdx,
+                                periodIdx
+                              );
+                              return (
+                                <td
+                                  key={periodIdx}
+                                  className={`border border-gray-300 px-2 py-2 text-sm cursor-pointer ${
+                                    locked
+                                      ? "bg-gray-100 text-gray-600 cursor-not-allowed"
+                                      : "hover:bg-indigo-50"
+                                  }`}
+                                  onClick={() =>
+                                    editMode &&
+                                    !locked &&
+                                    setSelectedCell({
+                                      classIdx,
+                                      day: dayIdx,
+                                      period: periodIdx,
+                                    })
+                                  }
+                                >
+                                  {selectedCell?.classIdx === classIdx &&
+                                  selectedCell?.day === dayIdx &&
+                                  selectedCell?.period === periodIdx ? (
+                                    <input
+                                      type="text"
+                                      defaultValue={
+                                        timetable[classIdx][dayIdx][
+                                          periodIdx
+                                        ] || ""
+                                      }
+                                      onBlur={(e) =>
                                         updateCell(
                                           classIdx,
                                           dayIdx,
                                           periodIdx,
                                           e.target.value
-                                        );
-                                      if (e.key === "Escape")
-                                        setSelectedCell(null);
-                                    }}
-                                    autoFocus
-                                    className="w-full px-2 py-1 border border-indigo-500 rounded"
-                                  />
-                                ) : (
-                                  <div
-                                    className={`${
-                                      timetable[classIdx][dayIdx][periodIdx]
-                                        ? "text-gray-800"
-                                        : "text-gray-400"
-                                    }`}
-                                  >
-                                    {timetable[classIdx][dayIdx][periodIdx] ||
-                                      "Free"}
-                                  </div>
-                                )}
-                              </td>
-                            ))}
+                                        )
+                                      }
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter")
+                                          updateCell(
+                                            classIdx,
+                                            dayIdx,
+                                            periodIdx,
+                                            e.target.value
+                                          );
+                                        if (e.key === "Escape")
+                                          setSelectedCell(null);
+                                      }}
+                                      autoFocus
+                                      className="w-full px-2 py-1 border border-indigo-500 rounded"
+                                    />
+                                  ) : (
+                                    <div
+                                      className={`${
+                                        timetable[classIdx][dayIdx][periodIdx]
+                                          ? locked
+                                            ? "text-gray-600 font-medium"
+                                            : "text-gray-800"
+                                          : "text-gray-400"
+                                      }`}
+                                    >
+                                      {timetable[classIdx][dayIdx][periodIdx] ||
+                                        "Free"}
+                                    </div>
+                                  )}
+                                </td>
+                              );
+                            })}
                           </tr>
                         ))}
                       </tbody>
@@ -622,142 +755,172 @@ const TimetableGenerator = () => {
     </div>
   );
 };
-
-// Sub-components for forms
 const StaticHoursForm = ({ staticHours, setStaticHours }) => {
-  const [newStatic, setNewStatic] = useState({
-    yearGroup: 0,
-    subject: "",
-    slots: [],
-  });
+  const [yearGroup, setYearGroup] = useState(0);
+  const [subject, setSubject] = useState("");
+  const [section, setSection] = useState("A");
+  const [slots, setSlots] = useState([]);
 
-  const addSlot = () => {
-    setNewStatic({
-      ...newStatic,
-      slots: [...newStatic.slots, { day: 0, period: 0 }],
-    });
+  const days = [
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+  ];
+  const yearLabels = [
+    "1 Year BCA",
+    "2 Year BCA",
+    "3 Year BCA",
+    "I Year MCA",
+    "II Year MCA",
+  ];
+
+  const periods = [1, 2, 3, 4, 5];
+
+  // toggle slot
+  const toggleSlot = (day, period) => {
+    const zero = period - 1;
+
+    const alreadySaved = staticHours
+      .filter((sh) => sh.yearGroup === yearGroup && sh.section === section)
+      .some((sh) => sh.slots.some((s) => s.day === day && s.period === zero));
+
+    if (alreadySaved) return;
+
+    const exists = slots.some((s) => s.day === day && s.period === zero);
+
+    if (exists) {
+      setSlots(slots.filter((s) => !(s.day === day && s.period === zero)));
+    } else {
+      setSlots([...slots, { day, period: zero }]);
+    }
   };
 
-  const addStatic = () => {
-    if (newStatic.subject) {
-      setStaticHours([...staticHours, newStatic]);
-      setNewStatic({ yearGroup: 0, subject: "", slots: [] });
-    }
+  // save
+  const saveStatic = () => {
+    if (!subject.trim() || slots.length === 0) return;
+
+    setStaticHours([...staticHours, { yearGroup, section, subject, slots }]);
+
+    setSubject("");
+    setSlots([]);
   };
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
+      {/* Year / Section / Subject */}
+      <div className="grid grid-cols-3 gap-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Year Group
-          </label>
+          <label>Year Group</label>
           <select
-            value={newStatic.yearGroup}
-            onChange={(e) =>
-              setNewStatic({
-                ...newStatic,
-                yearGroup: parseInt(e.target.value),
-              })
-            }
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+            value={yearGroup}
+            onChange={(e) => {
+              setYearGroup(Number(e.target.value));
+              setSlots([]); // clear table selection when switching year
+            }}
+            className="w-full border px-3 py-2 rounded"
           >
-            <option value={0}>Year 1</option>
-            <option value={1}>Year 2</option>
-            <option value={2}>Year 3</option>
+            <option value={0}>1 Year BCA</option>
+            <option value={1}>2 Year BCA</option>
+            <option value={2}>3 Year BCA</option>
+            <option value={3}>I Year MCA</option>
+            <option value={4}>II Year MCA</option>
           </select>
         </div>
+
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Subject
-          </label>
+          <label>Section</label>
+          <select
+            value={section}
+            onChange={(e) => setSection(e.target.value)}
+            className="w-full border px-3 py-2 rounded"
+          >
+            <option value="A">A</option>
+            <option value="B">B</option>
+          </select>
+        </div>
+
+        <div>
+          <label>Subject</label>
           <input
-            type="text"
-            value={newStatic.subject}
-            onChange={(e) =>
-              setNewStatic({ ...newStatic, subject: e.target.value })
-            }
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-            placeholder="e.g., Library"
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+            className="w-full border px-3 py-2 rounded"
           />
         </div>
       </div>
 
-      {newStatic.slots.map((slot, idx) => (
-        <div key={idx} className="grid grid-cols-3 gap-4">
-          <select
-            value={slot.day}
-            onChange={(e) => {
-              const newSlots = [...newStatic.slots];
-              newSlots[idx].day = parseInt(e.target.value);
-              setNewStatic({ ...newStatic, slots: newSlots });
-            }}
-            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-          >
-            <option value={0}>Monday</option>
-            <option value={1}>Tuesday</option>
-            <option value={2}>Wednesday</option>
-            <option value={3}>Thursday</option>
-            <option value={4}>Friday</option>
-            <option value={5}>Saturday</option>
-          </select>
-          <select
-            value={slot.period}
-            onChange={(e) => {
-              const newSlots = [...newStatic.slots];
-              newSlots[idx].period = parseInt(e.target.value);
-              setNewStatic({ ...newStatic, slots: newSlots });
-            }}
-            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-          >
-            {[0, 1, 2, 3, 4].map((p) => (
-              <option key={p} value={p}>
-                Period {p + 1}
-              </option>
+      {/* Grid */}
+      <table className="w-full border">
+        <thead>
+          <tr className="bg-blue-100">
+            <th className="border px-3 py-2">Day</th>
+            {periods.map((p) => (
+              <th key={p} className="border px-3 py-2">
+                P{p}
+              </th>
             ))}
-          </select>
-          <button
-            onClick={() =>
-              setNewStatic({
-                ...newStatic,
-                slots: newStatic.slots.filter((_, i) => i !== idx),
-              })
-            }
-            className="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
-        </div>
-      ))}
+          </tr>
+        </thead>
 
-      <div className="flex gap-2">
-        <button
-          onClick={addSlot}
-          className="flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600"
-        >
-          <Plus className="w-4 h-4" />
-          Add Time Slot
-        </button>
-        <button
-          onClick={addStatic}
-          className="flex items-center gap-2 bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600"
-        >
-          <Check className="w-4 h-4" />
-          Save Static Hour
-        </button>
-      </div>
+        <tbody>
+          {days.map((dayName, dayIndex) => (
+            <tr key={dayIndex}>
+              <td className="border px-3 py-2">{dayName}</td>
 
-      {staticHours.length > 0 && (
-        <div className="mt-4">
-          <h4 className="font-semibold mb-2">Saved Static Hours:</h4>
-          {staticHours.map((sh, idx) => (
-            <div key={idx} className="bg-gray-50 p-3 rounded-lg mb-2">
-              <span className="font-medium">{sh.subject}</span> - Year{" "}
-              {sh.yearGroup + 1} ({sh.slots.length} slots)
-            </div>
+              {periods.map((p) => {
+                const zero = p - 1;
+
+                const savedEntries = staticHours.filter(
+                  (sh) => sh.yearGroup === yearGroup && sh.section === section
+                );
+
+                const savedSelect = savedEntries.some((sh) =>
+                  sh.slots.some((s) => s.day === dayIndex && s.period === zero)
+                );
+
+                const newSelect = slots.some(
+                  (s) => s.day === dayIndex && s.period === zero
+                );
+
+                return (
+                  <td
+                    key={p}
+                    onClick={() => toggleSlot(dayIndex, p)}
+                    className={`border px-2 py-2 text-center cursor-pointer 
+                      ${
+                        savedSelect
+                          ? "bg-indigo-700 text-white cursor-not-allowed"
+                          : newSelect
+                          ? "bg-indigo-500 text-white"
+                          : "hover:bg-indigo-50"
+                      }`}
+                  >
+                    {savedSelect
+                      ? savedEntries.find((sh) =>
+                          sh.slots.some(
+                            (s) => s.day === dayIndex && s.period === zero
+                          )
+                        )?.subject
+                      : newSelect
+                      ? subject
+                      : ""}
+                  </td>
+                );
+              })}
+            </tr>
           ))}
-        </div>
-      )}
+        </tbody>
+      </table>
+
+      <button
+        onClick={saveStatic}
+        className="bg-green-600 text-white px-4 py-2 rounded"
+      >
+        Save Static Hour
+      </button>
     </div>
   );
 };
@@ -774,7 +937,7 @@ const HODForm = ({ hod, setHod }) => {
     if (newCourse.name) {
       setHod({
         ...hod,
-        courses: [...hod.courses, newCourse],
+        courses: [...hod.courses, { ...newCourse }],
       });
       setNewCourse({ year: "1", section: "A", name: "", duration: 3 });
     }
@@ -872,8 +1035,8 @@ const LabsForm = ({ labs, setLabs }) => {
   });
 
   const addLab = () => {
-    if (newLab.name && newLab.staffA && newLab.staffB) {
-      setLabs([...labs, newLab]);
+    if (newLab.name && newLab.staffA) {
+      setLabs([...labs, { ...newLab }]);
       setNewLab({ yearGroup: 0, name: "", hours: 2, staffA: "", staffB: "" });
     }
   };
@@ -890,12 +1053,13 @@ const LabsForm = ({ labs, setLabs }) => {
             onChange={(e) =>
               setNewLab({ ...newLab, yearGroup: parseInt(e.target.value) })
             }
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+            className="w-full border px-3 py-2 rounded"
           >
-            <option value={0}>Year 1</option>
-            <option value={1}>Year 2</option>
-            <option value={2}>Year 3</option>
-            <option value={3}>Year 4</option>
+            <option value={0}>1 Year BCA</option>
+            <option value={1}>2 Year BCA</option>
+            <option value={2}>3 Year BCA</option>
+            <option value={3}>I Year MCA</option>
+            <option value={4}>II Year MCA</option>
           </select>
         </div>
         <div>
@@ -971,7 +1135,7 @@ const LabsForm = ({ labs, setLabs }) => {
               </div>
               <div className="text-sm text-gray-600">
                 {lab.hours} hours | Section A: {lab.staffA} | Section B:{" "}
-                {lab.staffB}
+                {lab.staffB || "-"}
               </div>
             </div>
           ))}
@@ -994,7 +1158,7 @@ const StaffForm = ({ staff, setStaff }) => {
     if (newCourse.name) {
       setNewStaff({
         ...newStaff,
-        courses: [...newStaff.courses, newCourse],
+        courses: [...newStaff.courses, { ...newCourse }],
       });
       setNewCourse({ year: "1", section: "A", name: "", duration: 3 });
     }
@@ -1002,7 +1166,7 @@ const StaffForm = ({ staff, setStaff }) => {
 
   const addStaff = () => {
     if (newStaff.name && newStaff.courses.length > 0) {
-      setStaff([...staff, newStaff]);
+      setStaff([...staff, { ...newStaff }]);
       setNewStaff({ name: "", courses: [] });
     }
   };
