@@ -3,7 +3,7 @@ import { Calendar, Download, Edit2, Plus, Trash2, Check } from "lucide-react";
 
 const TimetableGenerator = () => {
   const [step, setStep] = useState(1);
-  const [classes, setClasses] = useState(6);
+  const [classes, setClasses] = useState("");
   const [staticHours, setStaticHours] = useState([]); // { yearGroup: number, subject: string, slots: [{day, period}] }
   const [hod, setHod] = useState({ name: "", courses: [] });
   const [labs, setLabs] = useState([]);
@@ -11,6 +11,20 @@ const TimetableGenerator = () => {
   const [timetable, setTimetable] = useState(null);
   const [editMode, setEditMode] = useState(false);
   const [selectedCell, setSelectedCell] = useState(null);
+
+  const getYearGroupOptions = () => {
+    const count = Number(classes);
+    const options = [];
+  
+    if (count >= 1) options.push({ value: 0, label: "1 Year BCA" });
+    if (count >= 3) options.push({ value: 1, label: "2 Year BCA" });
+    if (count >= 5) options.push({ value: 2, label: "3 Year BCA" });
+    if (count >= 7) options.push({ value: 3, label: "I Year MCA" });
+    if (count >= 8) options.push({ value: 4, label: "II Year MCA" });
+  
+    return options;
+  };
+
 
   const days = [
     "Monday",
@@ -358,30 +372,35 @@ const TimetableGenerator = () => {
 
           {/* Progress Steps */}
           <div className="flex items-center gap-2 mt-6">
-            {["Setup", "Static Hours", "HOD", "Labs", "Staff", "Generate"].map(
-              (label, idx) => (
-                <React.Fragment key={idx}>
-                  <div
-                    className={`flex items-center justify-center w-8 h-8 rounded-full ${
-                      step > idx
-                        ? "bg-green-500"
-                        : step === idx + 1
-                        ? "bg-indigo-600"
-                        : "bg-gray-300"
-                    } text-white font-bold`}
-                  >
-                    {step > idx ? <Check className="w-5 h-5" /> : idx + 1}
-                  </div>
-                  {idx < 5 && (
-                    <div
-                      className={`flex-1 h-1 ${
-                        step > idx + 1 ? "bg-green-500" : "bg-gray-300"
-                      }`}
-                    />
-                  )}
-                </React.Fragment>
-              )
-            )}
+          {["Setup", "Static Hours", "HOD", "Labs", "Staff", "Generate"].map(
+  (label, idx) => {
+    const stepNumber = idx + 1;
+    const isCompleted = step > stepNumber;
+    const isCurrent = step === stepNumber;
+
+    return (
+      <React.Fragment key={idx}>
+        <div
+          onClick={() => setStep(stepNumber)}
+          className={`flex items-center justify-center w-8 h-8 rounded-full cursor-pointer transition
+            ${isCompleted ? "bg-green-500" : isCurrent ? "bg-indigo-600" : "bg-gray-300"} 
+            text-white font-bold`}
+        >
+          {isCompleted ? <Check className="w-5 h-5" /> : stepNumber}
+        </div>
+
+        {idx < 5 && (
+          <div
+            className={`flex-1 h-1 ${
+              step > stepNumber ? "bg-green-500" : "bg-gray-300"
+            }`}
+          />
+        )}
+      </React.Fragment>
+    );
+  }
+)}
+
           </div>
         </div>
 
@@ -397,54 +416,53 @@ const TimetableGenerator = () => {
                   Number of Classes
                 </label>
                 <input
-                  type="number"
-                  min={1}
-                  max={8}
-                  value={classes}
-                  onChange={(e) => {
-                    const v = e.target.value;
+  type="number"
+  min={1}
+  max={8}
+  value={classes === "" ? "" : classes}
+  onChange={(e) => {
+    const v = e.target.value;
 
-                    // Allow empty while typing
-                    if (v === "") {
-                      setClasses("");
-                      return;
-                    }
+    // Allow empty while typing
+    if (v === "") {
+      setClasses("");
+      return;
+    }
 
-                    const num = Number(v);
+    const num = Number(v);
 
-                    // Show alerts
-                    if (num < 1) {
-                      alert("⚠ Minimum allowed class count is 1");
-                      setClasses(1);
-                      return;
-                    }
+    // Allow typing but DO NOT show alerts until blur
+    if (num < 1 || num > 8) {
+      setClasses(num);
+      return;
+    }
 
-                    if (num > 8) {
-                      alert("⚠ Maximum allowed classes is 8");
-                      setClasses(8);
-                      return;
-                    }
+    setClasses(num);
+  }}
+  onBlur={() => {
+    // If empty on blur → set to minimum
+    if (classes === "") {
+      alert("⚠ Please enter number of classes");
+      setClasses(1);
+      return;
+    }
 
-                    setClasses(num);
-                  }}
-                  onBlur={() => {
-                    let v = Number(classes);
+    let v = Number(classes);
 
-                    if (isNaN(v) || v < 1) {
-                      alert("⚠ Minimum allowed class count is 1");
-                      v = 1;
-                    }
+    if (isNaN(v) || v < 1) {
+      alert("⚠ Minimum allowed class count is 1");
+      v = 1;
+    }
 
-                    if (v > 8) {
-                      alert("⚠ Maximum allowed classes is 8");
-                      v = 8;
-                    }
+    if (v > 8) {
+      alert("⚠ Maximum allowed classes is 8");
+      v = 8;
+    }
 
-                    setClasses(v);
-                  }}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-                />
-
+    setClasses(v);
+  }}
+  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+/>
                 <p className="text-sm text-gray-500 mt-1">
                   Selected classes: {classNames.slice(0, classes).join(", ")}
                 </p>
@@ -469,6 +487,7 @@ const TimetableGenerator = () => {
               <StaticHoursForm
                 staticHours={staticHours}
                 setStaticHours={setStaticHours}
+                yearGroupOptions={getYearGroupOptions()}
                 getClassIndicesForYearGroup={getClassIndicesForYearGroup}
                 classNames={classNames}
               />
@@ -755,10 +774,12 @@ const TimetableGenerator = () => {
     </div>
   );
 };
-const StaticHoursForm = ({ staticHours, setStaticHours }) => {
+
+
+
+const StaticHoursForm = ({ staticHours, setStaticHours,yearGroupOptions  , }) => {
   const [yearGroup, setYearGroup] = useState(0);
   const [subject, setSubject] = useState("");
-  const [section, setSection] = useState("A");
   const [slots, setSlots] = useState([]);
 
   const days = [
@@ -769,22 +790,14 @@ const StaticHoursForm = ({ staticHours, setStaticHours }) => {
     "Friday",
     "Saturday",
   ];
-  const yearLabels = [
-    "1 Year BCA",
-    "2 Year BCA",
-    "3 Year BCA",
-    "I Year MCA",
-    "II Year MCA",
-  ];
-
   const periods = [1, 2, 3, 4, 5];
 
-  // toggle slot
   const toggleSlot = (day, period) => {
     const zero = period - 1;
 
+    // Prevent override saved static entries
     const alreadySaved = staticHours
-      .filter((sh) => sh.yearGroup === yearGroup && sh.section === section)
+      .filter((sh) => sh.yearGroup === yearGroup)
       .some((sh) => sh.slots.some((s) => s.day === day && s.period === zero));
 
     if (alreadySaved) return;
@@ -798,11 +811,23 @@ const StaticHoursForm = ({ staticHours, setStaticHours }) => {
     }
   };
 
-  // save
   const saveStatic = () => {
     if (!subject.trim() || slots.length === 0) return;
 
-    setStaticHours([...staticHours, { yearGroup, section, subject, slots }]);
+    let newEntries = [];
+
+    // BCA (0,1,2) → create A & B
+    if (yearGroup <= 2) {
+      newEntries = [
+        { yearGroup, section: "A", subject, slots },
+        { yearGroup, section: "B", subject, slots },
+      ];
+    } else {
+      // MCA → only A
+      newEntries = [{ yearGroup, section: "A", subject, slots }];
+    }
+
+    setStaticHours([...staticHours, ...newEntries]);
 
     setSubject("");
     setSlots([]);
@@ -810,36 +835,24 @@ const StaticHoursForm = ({ staticHours, setStaticHours }) => {
 
   return (
     <div className="space-y-4">
-      {/* Year / Section / Subject */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 gap-4">
         <div>
           <label>Year Group</label>
           <select
-            value={yearGroup}
-            onChange={(e) => {
-              setYearGroup(Number(e.target.value));
-              setSlots([]); // clear table selection when switching year
-            }}
-            className="w-full border px-3 py-2 rounded"
-          >
-            <option value={0}>1 Year BCA</option>
-            <option value={1}>2 Year BCA</option>
-            <option value={2}>3 Year BCA</option>
-            <option value={3}>I Year MCA</option>
-            <option value={4}>II Year MCA</option>
-          </select>
-        </div>
+  value={yearGroup}
+  onChange={(e) => {
+    setYearGroup(Number(e.target.value));
+    setSlots([]);
+  }}
+  className="w-full border px-3 py-2 rounded"
+>
+  {yearGroupOptions.map((opt) => (
+    <option key={opt.value} value={opt.value}>
+      {opt.label}
+    </option>
+  ))}
+</select>
 
-        <div>
-          <label>Section</label>
-          <select
-            value={section}
-            onChange={(e) => setSection(e.target.value)}
-            className="w-full border px-3 py-2 rounded"
-          >
-            <option value="A">A</option>
-            <option value="B">B</option>
-          </select>
         </div>
 
         <div>
@@ -852,7 +865,6 @@ const StaticHoursForm = ({ staticHours, setStaticHours }) => {
         </div>
       </div>
 
-      {/* Grid */}
       <table className="w-full border">
         <thead>
           <tr className="bg-blue-100">
@@ -869,12 +881,11 @@ const StaticHoursForm = ({ staticHours, setStaticHours }) => {
           {days.map((dayName, dayIndex) => (
             <tr key={dayIndex}>
               <td className="border px-3 py-2">{dayName}</td>
-
               {periods.map((p) => {
                 const zero = p - 1;
 
                 const savedEntries = staticHours.filter(
-                  (sh) => sh.yearGroup === yearGroup && sh.section === section
+                  (sh) => sh.yearGroup === yearGroup
                 );
 
                 const savedSelect = savedEntries.some((sh) =>
@@ -889,7 +900,7 @@ const StaticHoursForm = ({ staticHours, setStaticHours }) => {
                   <td
                     key={p}
                     onClick={() => toggleSlot(dayIndex, p)}
-                    className={`border px-2 py-2 text-center cursor-pointer 
+                    className={`border px-2 py-2 text-center cursor-pointer
                       ${
                         savedSelect
                           ? "bg-indigo-700 text-white cursor-not-allowed"
@@ -930,7 +941,7 @@ const HODForm = ({ hod, setHod }) => {
     year: "1",
     section: "A",
     name: "",
-    duration: 3,
+    duration: "",
   });
 
   const addCourse = () => {
@@ -939,7 +950,7 @@ const HODForm = ({ hod, setHod }) => {
         ...hod,
         courses: [...hod.courses, { ...newCourse }],
       });
-      setNewCourse({ year: "1", section: "A", name: "", duration: 3 });
+      setNewCourse({ year: "1", section: "A", name: "", duration: "" });
     }
   };
 
@@ -988,18 +999,21 @@ const HODForm = ({ hod, setHod }) => {
           placeholder="Course name"
         />
         <input
-          type="number"
-          value={newCourse.duration}
-          onChange={(e) =>
-            setNewCourse({
-              ...newCourse,
-              duration: parseInt(e.target.value) || 1,
-            })
-          }
-          className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-          placeholder="Hours"
-          min="1"
-        />
+  type="number"
+  value={newCourse.duration}
+  onChange={(e) => {
+    const v = e.target.value;
+    setNewCourse({
+      ...newCourse,
+      duration: v === "" ? "" : parseInt(v),
+    });
+  }}
+  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+  min="1"
+  placeholder="Hours"
+/>
+
+         
       </div>
 
       <button
@@ -1029,7 +1043,7 @@ const LabsForm = ({ labs, setLabs }) => {
   const [newLab, setNewLab] = useState({
     yearGroup: 0,
     name: "",
-    hours: 2,
+    hours: "",
     staffA: "",
     staffB: "",
   });
@@ -1037,7 +1051,7 @@ const LabsForm = ({ labs, setLabs }) => {
   const addLab = () => {
     if (newLab.name && newLab.staffA) {
       setLabs([...labs, { ...newLab }]);
-      setNewLab({ yearGroup: 0, name: "", hours: 2, staffA: "", staffB: "" });
+      setNewLab({ yearGroup: 0, name: "", hours: "", staffA: "", staffB: "" });
     }
   };
 
@@ -1084,12 +1098,19 @@ const LabsForm = ({ labs, setLabs }) => {
           <input
             type="number"
             value={newLab.hours}
-            onChange={(e) =>
-              setNewLab({ ...newLab, hours: parseInt(e.target.value) || 1 })
-            }
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+            onChange={(e) => {
+              const v = e.target.value;
+              setNewLab({
+                ...newLab,
+                hours: v === "" ? "" : parseInt(v),
+              });
+            }}
             min="1"
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+            placeholder="Hours"
           />
+
+         
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -1151,7 +1172,7 @@ const StaffForm = ({ staff, setStaff }) => {
     year: "1",
     section: "A",
     name: "",
-    duration: 3,
+    duration: "",
   });
 
   const addCourse = () => {
@@ -1160,7 +1181,7 @@ const StaffForm = ({ staff, setStaff }) => {
         ...newStaff,
         courses: [...newStaff.courses, { ...newCourse }],
       });
-      setNewCourse({ year: "1", section: "A", name: "", duration: 3 });
+      setNewCourse({ year: "1", section: "A", name: "", duration: "" });
     }
   };
 
